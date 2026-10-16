@@ -1,0 +1,32 @@
+# Flutter / Dart
+**/.dart_tool/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/.pub-cache/
+**/.pub/
+**/build/
+**/coverage/
+
+# Android / IDE
+**/.gradle/
+**/.kotlin/
+**/local.properties
+**/.idea/
+**/*.iml
+
+# Generated files
+*.log
+.DS_Store
+Thumbs.db
+
+# Arduino generated files
+*.elf
+*.hex
+*.bin
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
