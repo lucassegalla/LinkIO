@@ -1,0 +1,3 @@
+git add -A
+git diff --cached --check
+git commit -m "refactor: improve firmware configuration"

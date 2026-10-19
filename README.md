@@ -1,182 +1,286 @@
-# Latch
+# LinkIO
 
-O Latch é um projeto de automação que integra um aplicativo mobile desenvolvido em Flutter a um dispositivo ESP8266. O sistema permite controlar um LED pela rede Wi-Fi local, ligar ou desligar a iluminação e ajustar sua intensidade.
+Aplicativo mobile desenvolvido com Flutter para descobrir e controlar dispositivos ESP8266 pela rede Wi-Fi local. O projeto combina uma interface para celular, um firmware Arduino e uma API HTTP local para comandar um motor de passo e uma saída de iluminação RGB.
 
-O repositório reúne o aplicativo mobile e o firmware que executa no microcontrolador.
+O LinkIO está em desenvolvimento como protótipo de automação e comunicação entre software e hardware. Não utiliza backend, banco de dados ou serviços em nuvem: o aplicativo conversa diretamente com o ESP8266.
 
 ## Sumário
 
 - [Objetivo](#objetivo)
+- [Demonstração](#demonstração)
 - [Tecnologias utilizadas](#tecnologias-utilizadas)
 - [Arquitetura](#arquitetura)
 - [Estrutura do projeto](#estrutura-do-projeto)
 - [Funcionalidades](#funcionalidades)
-- [Hardware](#hardware)
+- [Hardware e conexões](#hardware-e-conexões)
 - [Como executar](#como-executar)
-- [Comunicação com o ESP8266](#comunicação-com-o-esp8266)
-- [Endpoints](#endpoints)
+- [API HTTP](#api-http)
+- [Limitações e segurança](#limitações-e-segurança)
 - [Solução de problemas](#solução-de-problemas)
 - [Roadmap](#roadmap)
 - [Autor](#autor)
 
 ## Objetivo
 
-O projeto foi desenvolvido para explorar a integração entre um aplicativo mobile e um dispositivo físico conectado à rede local. O aplicativo envia requisições HTTP ao ESP8266, que interpreta os comandos e controla o LED conectado à placa.
+O LinkIO começou como um protótipo de controle local por Wi-Fi e evoluiu para um sistema que integra um aplicativo mobile a um microcontrolador. O objetivo é praticar desenvolvimento Flutter, comunicação HTTP, descoberta de dispositivos na rede, programação de microcontroladores e acionamento de componentes físicos.
 
-A implementação atual utiliza um LED de baixa tensão como demonstração. O controle de brilho é feito por PWM, permitindo variar a intensidade luminosa sem alterar o circuito.
+## Demonstração
+
+O fluxo de uso previsto é:
+
+1. Conectar o celular e o ESP8266 à mesma rede Wi-Fi.
+2. Iniciar o firmware e consultar o endereço IP exibido no Monitor Serial.
+3. Abrir o LinkIO e procurar dispositivos na rede ou adicionar o endereço IP manualmente.
+4. Expandir o cartão do dispositivo para acessar os controles.
+5. Comandar o motor de passo, selecionar uma cor, ajustar os canais RGB e alterar o brilho.
+6. Atualizar o estado para verificar se o dispositivo continua respondendo.
+
+As capturas de tela da interface ainda precisam ser organizadas e referenciadas no repositório. A documentação pode ser complementada com imagens da aplicação quando estiverem disponíveis em uma pasta como `docs/images/`.
 
 ## Tecnologias utilizadas
 
 ### Aplicativo mobile
 
-- **Dart** - Linguagem de programação do aplicativo
-- **Flutter** - Framework para desenvolvimento da interface mobile
-- **HTTP** - Comunicação com a API local do ESP8266
-- **multicast_dns** - Biblioteca utilizada na tentativa de descoberta de dispositivos por mDNS
+- **Dart:** linguagem utilizada no aplicativo.
+- **Flutter:** desenvolvimento da interface e execução multiplataforma.
+- **Material 3:** componentes e tema visual.
+- **`http`:** requisições HTTP ao ESP8266.
+- **`multicast_dns`:** descoberta de serviços por mDNS na rede local.
+- **`shared_preferences`:** armazenamento local dos nomes personalizados dos dispositivos.
 
-### Firmware e hardware
+### Firmware e comunicação
 
-- **C++ / Arduino IDE** - Desenvolvimento e gravação do firmware
-- **ESP8266 ESP-12E / NodeMCU** - Microcontrolador com conectividade Wi-Fi
-- **ESP8266WebServer** - Servidor HTTP executado na placa
-- **PWM** - Controle da intensidade luminosa do LED
+- **Arduino IDE:** edição e gravação do firmware.
+- **ESP8266 Arduino Core:** ambiente de desenvolvimento do microcontrolador.
+- **`ESP8266WiFi`:** conexão à rede Wi-Fi.
+- **`ESP8266WebServer`:** servidor HTTP local.
+- **`ESP8266mDNS`:** anúncio do serviço para descoberta na rede.
+- **`ArduinoJson`:** biblioteca utilizada no firmware para trabalhar com dados JSON.
+- **HTTP e JSON:** protocolo utilizado entre o aplicativo e o microcontrolador.
+- **PWM e GPIO:** controle das saídas físicas.
+
+### Hardware
+
+- Placa baseada em ESP8266, como NodeMCU ESP-12E.
+- Motor de passo de quatro fases compatível com o driver utilizado.
+- Driver para motor de passo, como o ULN2003 quando utilizado com um motor compatível.
+- LED ou módulo RGB de baixa tensão com resistores apropriados.
+- Fonte de alimentação adequada aos componentes conectados.
 
 ## Arquitetura
 
-O aplicativo e o microcontrolador se comunicam por HTTP através da rede Wi-Fi local.
+O LinkIO utiliza comunicação direta dentro da rede local. Não existe um backend intermediário.
 
 ```text
-Aplicativo Flutter
-       |
-       | Requisições HTTP
-       v
-Servidor HTTP no ESP8266
-       |
-       | GPIO / PWM
-       v
-      LED
+┌──────────────────────────────┐
+│       Aplicativo Flutter     │
+│                              │
+│ Descoberta mDNS              │
+│ Conexão manual por IP        │
+│ Controles de motor e RGB     │
+└──────────────┬───────────────┘
+               │
+               │ HTTP + JSON
+               │ Rede Wi-Fi local
+               ▼
+┌──────────────────────────────┐
+│           ESP8266            │
+│                              │
+│ Servidor HTTP                │
+│ API de controle              │
+│ Estado atual do dispositivo  │
+└──────────────┬───────────────┘
+               │
+         ┌─────┴─────┐
+         ▼           ▼
+┌──────────────┐ ┌──────────────┐
+│ Driver e     │ │ Saídas RGB   │
+│ motor de     │ │ controladas  │
+│ passo        │ │ por PWM      │
+└──────────────┘ └──────────────┘
 ```
 
 ### Aplicativo Flutter
 
-Responsável pela interface de controle. Permite adicionar um dispositivo pelo endereço IP, consultar seu estado, ligar ou desligar o LED, ajustar o brilho e atualizar as informações exibidas.
+A interface localiza dispositivos compatíveis, mantém a lista de conexões em memória durante a execução e envia comandos à API. Os nomes personalizados dos dispositivos são armazenados localmente com `shared_preferences`.
 
 ### Firmware ESP8266
 
-Conecta-se à rede Wi-Fi configurada no código e inicia um servidor HTTP na porta `80`. O firmware recebe comandos do aplicativo e controla o LED conectado ao pino `D1` (GPIO5).
+O microcontrolador conecta-se à rede Wi-Fi, inicia um servidor HTTP na porta `80` e processa requisições para consultar o estado ou alterar o motor e a iluminação. Os comandos são convertidos em sinais GPIO e PWM.
 
-### Comunicação
+### Descoberta e conexão
 
-As requisições e respostas utilizam JSON. O aplicativo e o ESP8266 devem estar conectados à mesma rede local para que o celular consiga acessar o endereço IP da placa.
+O aplicativo consulta serviços HTTP anunciados por mDNS. Quando a descoberta não funciona na rede, é possível informar o IP e, quando necessário, a porta do dispositivo manualmente.
 
 ## Estrutura do projeto
 
+A estrutura principal documentada é:
+
 ```text
-latch/
-├── README.md
+.
 ├── firmware/
 │   └── latch_esp8266/
-│       └── latch_esp8266.ino
-└── latch_mobile/
-    ├── android/
-    ├── lib/
-    │   └── main.dart
-    ├── test/
-    │   └── widget_test.dart
-    ├── firmware/
-    │   └── latch_esp32.ino
-    ├── pubspec.yaml
-    └── pubspec.lock
+│       └── latch_esp8266.ino    # Firmware do ESP8266
+├── latch_mobile/
+│   ├── android/                 # Configuração Android
+│   ├── lib/
+│   │   └── main.dart            # Interface e comunicação HTTP
+│   ├── pubspec.yaml             # Dependências do Flutter
+│   └── pubspec.lock             # Versões resolvidas das dependências
+└── README.md                    # Documentação do projeto
 ```
 
-O arquivo `firmware/latch_esp8266/latch_esp8266.ino` contém o firmware usado no protótipo ESP8266. O arquivo `latch_mobile/firmware/latch_esp32.ino` é um exemplo separado de firmware para ESP32 e não corresponde à placa ESP8266 descrita nas instruções principais.
+Arquivos auxiliares gerados pelo Flutter, como `build/`, `.dart_tool/` e caches locais, não fazem parte da estrutura principal a ser versionada.
 
 ## Funcionalidades
 
-### Aplicativo mobile
+### Descoberta e gerenciamento de dispositivos
 
-- Adicionar um dispositivo pelo endereço IP
-- Consultar o estado do LED e o brilho atual
-- Ligar e desligar o LED
-- Ajustar a intensidade luminosa com um controle deslizante
-- Atualizar o estado de um dispositivo cadastrado
-- Exibir o endereço e a condição de conexão do dispositivo
-- Iniciar uma busca por dispositivos compatíveis via mDNS
+- Busca de dispositivos HTTP na rede local por mDNS.
+- Adição manual de um dispositivo por endereço IP e porta opcional.
+- Consulta do endpoint de status para validar a conexão.
+- Exibição de endereço, porta e estado online/offline.
+- Atualização manual do estado do dispositivo.
+- Renomeação de dispositivos com persistência local do nome personalizado.
+- Cartões individuais que podem ser expandidos ou recolhidos.
+- Opções para renomear ou desconectar um dispositivo.
+- Ao desconectar, o aplicativo tenta enviar comandos de parada aos motores dos dispositivos conectados. Esse procedimento é uma tentativa de melhor esforço e não substitui uma parada de emergência física.
 
-A busca automática depende de os dispositivos anunciarem o serviço HTTP via mDNS. O firmware ESP8266 descrito neste README não anuncia esse serviço; por isso, a conexão manual pelo endereço IP é o método recomendado para o protótipo atual.
+### Motor de passo
 
-### Firmware
+- Ligar e desligar o motor.
+- Selecionar o sentido horário ou anti-horário.
+- Exibir o estado informado pelo firmware.
+- Gerar a sequência de acionamento das bobinas no ESP8266.
 
-- Conectar-se a uma rede Wi-Fi
-- Iniciar um servidor HTTP na porta `80`
-- Retornar o estado do LED em JSON
-- Receber comandos para ligar e desligar
-- Ajustar o brilho entre `0` e `100`
-- Controlar a saída PWM do LED
+O sentido é enviado como `1` para horário e `-1` para anti-horário. A velocidade de acionamento é definida no firmware e não é configurável pela API atual.
 
-## Hardware
+### Iluminação RGB
 
-O protótipo utiliza uma placa NodeMCU ESP8266 ESP-12E, um LED e um resistor limitador de corrente.
+- Ligar e desligar a saída de iluminação.
+- Selecionar cores predefinidas: vermelho, verde, azul, branco, amarelo, ciano, magenta e desligado.
+- Ajustar manualmente os canais vermelho, verde e azul.
+- Ajustar o brilho em uma faixa de `0` a `100`.
+- Consultar o estado e os valores atuais retornados pelo firmware.
 
-Ligação utilizada:
+Os controles operam as saídas RGB conectadas ao ESP8266. Eles não significam, por si só, que uma lâmpada inteligente comercial esteja integrada ao projeto.
 
-```text
-D1 (GPIO5) ── Resistor (220–330 Ω) ── Perna longa do LED
-GND        ────────────────────────── Perna curta do LED
-```
+### Estado e falhas de comunicação
 
-Use um resistor em série com o LED para limitar a corrente. Não conecte uma lâmpada ligada à rede elétrica diretamente aos pinos do ESP8266.
+- Leitura do estado por `GET /api/status`.
+- Atualização visual dos valores recebidos.
+- Indicação de dispositivos que não respondem.
+- Mensagens de erro quando uma requisição falha ou retorna um status HTTP diferente de `200`.
+
+## Hardware e conexões
+
+As associações de pinos descritas no firmware atual são:
+
+| Componente | Sinal | Pino ESP8266 |
+| :-- | :-- | :-- |
+| Driver do motor | IN1 | `D5` |
+| Driver do motor | IN2 | `D6` |
+| Driver do motor | IN3 | `D7` |
+| Driver do motor | IN4 | `D2` |
+| RGB | Vermelho | `D1` |
+| RGB | Verde | `D3` |
+| RGB | Azul | `D4` |
+
+**Cuidados com o hardware:**
+
+- Não alimente o motor diretamente pelos GPIOs do ESP8266. Utilize o driver apropriado e uma alimentação compatível com o motor.
+- Garanta uma referência de terra comum quando a fonte externa e a placa precisarem compartilhar sinais de controle.
+- Utilize resistores limitadores de corrente apropriados para LEDs RGB discretos.
+- Confira a pinagem real da placa e do módulo antes de energizar o circuito.
+- **Nunca conecte uma lâmpada ligada à rede elétrica diretamente ao ESP8266.** Para cargas de potência, utilize equipamento apropriado, isolação elétrica e instalação compatível com as normas de segurança.
 
 ## Como executar
 
-### 1. Configurar o firmware
+São necessários dois ambientes: um para gravar o firmware no ESP8266 e outro para executar o aplicativo Flutter.
 
-Abra `firmware/latch_esp8266/latch_esp8266.ino` na Arduino IDE. Certifique-se de que o suporte à placa ESP8266 esteja instalado, selecione uma placa NodeMCU ESP8266 compatível e escolha a porta serial correspondente.
+### 1. Preparar o firmware
 
-No início do arquivo, configure o nome e a senha da rede Wi-Fi:
+1. Instale a Arduino IDE.
+2. Instale o pacote de placas ESP8266 pelo gerenciador de placas da IDE.
+3. Instale a biblioteca `ArduinoJson`, caso ela não esteja disponível no ambiente.
+4. Abra `firmware/latch_esp8266/latch_esp8266.ino`.
+5. Configure as constantes `ssid` e `password` com os dados da sua rede Wi-Fi.
+6. Selecione a placa ESP8266 apropriada e a porta serial correta.
+7. Compile e grave o firmware.
+8. Abra o Monitor Serial a `115200` baud e anote o endereço IP apresentado.
 
-```cpp
-const char* ssid = "NOME_DA_REDE";
-const char* password = "SENHA_DA_REDE";
-```
+**Segurança:** não publique a senha real da rede Wi-Fi no repositório. Antes de enviar alterações ao GitHub, substitua credenciais reais por valores fictícios ou mova-as para um arquivo de configuração local que não seja versionado.
 
-Substitua `NOME_DA_REDE` pelo SSID da rede e `SENHA_DA_REDE` pela senha correspondente. Mantenha valores de exemplo no arquivo enviado ao GitHub e coloque as credenciais reais apenas na sua cópia local. Não publique sua senha de Wi-Fi no repositório.
+### 2. Preparar o aplicativo
 
-Compile e grave o firmware na placa. Abra o Monitor Serial com velocidade de `115200` baud. Após conectar à rede, o firmware imprime o endereço IP atribuído ao ESP8266.
+Instale o Flutter SDK e configure o Android SDK. Em seguida, abra um terminal na pasta do aplicativo:
 
-### 2. Executar o aplicativo Flutter
-
-Instale o Flutter e configure as ferramentas de desenvolvimento para Android. No terminal, entre na pasta do aplicativo:
-
-```powershell
+```bash
 cd latch_mobile
 flutter pub get
+```
+
+Verifique os dispositivos disponíveis:
+
+```bash
 flutter devices
 ```
 
-Conecte o celular Android por USB, ative a depuração USB e autorize o computador no celular. Depois execute o aplicativo, usando o identificador mostrado por `flutter devices`:
+Execute o aplicativo em um dispositivo selecionado:
 
-```powershell
-flutter run -d ID_DO_DISPOSITIVO
+```bash
+flutter run -d <ID_DO_DISPOSITIVO>
+```
+
+Para usar o dispositivo padrão detectado pelo Flutter:
+
+```bash
+flutter run
+```
+
+Para verificar estaticamente o projeto:
+
+```bash
+flutter analyze
 ```
 
 Para gerar um APK de depuração:
 
-```powershell
+```bash
 flutter build apk --debug
 ```
 
-### 3. Conectar ao ESP8266
+O APK de depuração é gerado em `build/app/outputs/flutter-apk/app-debug.apk`, dentro da pasta `latch_mobile`.
 
-Confirme que o celular e a placa estão conectados à mesma rede Wi-Fi. No aplicativo, pressione **Adicionar**, informe o endereço IP exibido no Monitor Serial e conecte-se.
+### 3. Conectar o aplicativo ao ESP8266
 
-O endereço IP pode mudar quando a placa se reconectar à rede. Se isso acontecer, consulte novamente o Monitor Serial e atualize o endereço usado no aplicativo.
+1. Conecte o celular e a placa à mesma rede Wi-Fi.
+2. Inicie o firmware e localize o IP no Monitor Serial.
+3. Abra o LinkIO e execute a busca de dispositivos.
+4. Se o dispositivo não aparecer, use a opção de adicionar manualmente e informe o IP.
+5. Expanda o cartão do dispositivo para acessar os controles.
+6. Utilize a atualização de estado para confirmar a comunicação.
 
-## Comunicação com o ESP8266
+O IP do ESP8266 pode mudar conforme a configuração do roteador. Se isso acontecer, consulte novamente o Monitor Serial e atualize o endereço utilizado pelo aplicativo.
 
-A API local usa a porta `80`. Nos exemplos abaixo, `192.168.100.170` é um endereço ilustrativo; utilize o IP atual da placa.
+## API HTTP
+
+O firmware expõe uma API HTTP na porta `80`. As requisições são locais e utilizam JSON nos endpoints de comando.
+
+### Endpoints
+
+| Método | Endpoint | Descrição |
+| :-- | :-- | :-- |
+| `GET` | `/` | Verifica se o servidor HTTP está respondendo. |
+| `GET` | `/api/status` | Retorna o estado atual do dispositivo. |
+| `POST` | `/api/motor` | Altera o estado e o sentido do motor. |
+| `POST` | `/api/rgb` | Seleciona uma cor predefinida ou define valores RGB. |
+| `POST` | `/api/brightness` | Define o brilho entre `0` e `100`. |
+| `POST` | `/api/light` | Liga ou desliga a iluminação. |
 
 ### Consultar o estado
+
+Requisição:
 
 ```http
 GET /api/status
@@ -186,30 +290,107 @@ Exemplo de resposta:
 
 ```json
 {
-  "light": true,
-  "brightness": 70
+  "name": "LinkIO",
+  "light": false,
+  "brightness": 100,
+  "red": 0,
+  "green": 0,
+  "blue": 0,
+  "color": "off",
+  "motorRunning": false,
+  "motorDirection": 1
 }
 ```
 
-- `light`: indica se o LED está ligado.
-- `brightness`: intensidade configurada, entre `0` e `100`.
+### Controlar o motor
 
-### Ligar ou desligar o LED
+Para iniciar o motor no sentido horário:
+
+```http
+POST /api/motor
+Content-Type: application/json
+
+{
+  "running": true,
+  "direction": 1
+}
+```
+
+Para selecionar o sentido anti-horário e manter o motor ligado:
+
+```json
+{
+  "running": true,
+  "direction": -1
+}
+```
+
+Para solicitar a parada:
+
+```json
+{
+  "running": false,
+  "direction": 1
+}
+```
+
+O valor `direction` deve ser `1` para horário ou `-1` para anti-horário. O firmware atual utiliza um intervalo fixo entre os passos.
+
+### Selecionar uma cor predefinida
+
+```http
+POST /api/rgb
+Content-Type: application/json
+
+{
+  "color": "cyan"
+}
+```
+
+As cores aceitas são `red`, `green`, `blue`, `white`, `yellow`, `cyan`, `magenta` e `off`.
+
+### Definir valores RGB manualmente
+
+```http
+POST /api/rgb
+Content-Type: application/json
+
+{
+  "red": 255,
+  "green": 0,
+  "blue": 100
+}
+```
+
+Cada canal é limitado à faixa de `0` a `255`. O firmware define o modo da iluminação como personalizado quando recebe valores RGB.
+
+### Ajustar o brilho
+
+```http
+POST /api/brightness
+Content-Type: application/json
+
+{
+  "brightness": 50
+}
+```
+
+O brilho aceita inteiros de `0` a `100`. No firmware atual, definir o brilho como `0` também desliga a saída de iluminação.
+
+### Ligar ou desligar a iluminação
+
+Para ligar:
 
 ```http
 POST /api/light
 Content-Type: application/json
-```
 
-Corpo para ligar:
-
-```json
 {
   "on": true
 }
 ```
 
-Corpo para desligar:
+Para desligar:
 
 ```json
 {
@@ -217,55 +398,63 @@ Corpo para desligar:
 }
 ```
 
-A resposta contém o estado atualizado do LED e o brilho configurado.
+Ao ligar, se os canais RGB estiverem todos zerados, o firmware seleciona branco para produzir uma saída visível.
 
-### Ajustar o brilho
+### Respostas de erro
 
-```http
-POST /api/brightness
-Content-Type: application/json
-```
+O firmware utiliza `400 Bad Request` para requisições sem os dados necessários ou com valores inválidos, e `404 Not Found` para rotas não reconhecidas. Em caso de sucesso, os endpoints de comando retornam o estado atualizado em JSON.
 
-Exemplo de corpo:
+## Limitações e segurança
 
-```json
-{
-  "brightness": 50
-}
-```
-
-O campo `brightness` deve ser um número inteiro entre `0` e `100`. Definir o brilho como `0` desliga o LED; valores maiores que zero ligam o LED e ajustam a intensidade.
-
-## Endpoints
-
-| Método | Endpoint | Descrição |
-| :--- | :--- | :--- |
-| `GET` | `/` | Verifica se o servidor do Latch está respondendo |
-| `GET` | `/api/status` | Consulta o estado do LED e o brilho |
-| `POST` | `/api/light` | Liga ou desliga o LED |
-| `POST` | `/api/brightness` | Define a intensidade luminosa entre 0 e 100 |
+- **Rede local:** o aplicativo foi projetado para se comunicar diretamente com dispositivos acessíveis pela rede Wi-Fi local. Não existe controle remoto pela internet nem serviço de nuvem.
+- **Sem autenticação e HTTPS:** a API utiliza HTTP sem autenticação. Qualquer dispositivo com acesso à rede e ao endereço do ESP8266 pode tentar enviar comandos. Utilize uma rede confiável e não exponha a porta do microcontrolador à internet.
+- **Credenciais Wi-Fi:** o firmware utiliza constantes de configuração para o SSID e a senha. Não versione valores reais.
+- **Descoberta mDNS:** no estado atual, o firmware anuncia o serviço com o nome `linkio-esp8266`, enquanto o aplicativo filtra instâncias cujo nome começa com `latch`. Essa diferença pode impedir que a busca automática encontre a placa. Até os dois lados serem alinhados, a conexão manual por IP é a alternativa mais direta.
+- **Nome exibido no Monitor Serial:** a mensagem de diagnóstico do firmware deve ser mantida consistente com o hostname realmente registrado via mDNS.
+- **Estado dos dispositivos:** o aplicativo consulta o estado do firmware. Os nomes personalizados são salvos localmente, mas a aplicação não utiliza um servidor central para sincronizar configurações entre celulares.
+- **Lâmpada comercial:** a versão atual controla as saídas do ESP8266. O controle de uma lâmpada Wi-Fi comercial requer uma integração específica e não deve ser presumido.
+- **Segurança física:** comandos HTTP não são um mecanismo de parada de emergência. Equipamentos que apresentem risco devem possuir meios físicos independentes de desligamento.
 
 ## Solução de problemas
 
-- **O aplicativo não conecta:** confirme que o celular e o ESP8266 estão na mesma rede Wi-Fi e que o endereço IP está correto.
-- **O IP não aparece:** confira as credenciais configuradas no firmware e observe as mensagens no Monitor Serial a `115200` baud.
-- **O dispositivo fica offline:** verifique a alimentação da placa, a conexão Wi-Fi e se o servidor HTTP foi iniciado.
-- **A busca automática não encontra o ESP8266:** use a conexão manual por IP. A descoberta mDNS requer que o dispositivo anuncie o serviço HTTP, recurso que não está configurado no firmware ESP8266 atual.
-- **O LED não altera o brilho:** confira a ligação do LED ao pino `D1` (GPIO5), o resistor em série e se o firmware correto foi gravado na placa.
+| Problema | Possíveis verificações |
+| :-- | :-- |
+| O dispositivo não aparece na busca | Confirme a mesma rede Wi-Fi, verifique o IP no Monitor Serial e confira o nome mDNS anunciado pelo firmware em relação ao filtro do aplicativo. |
+| A conexão manual falha | Revise o IP e a porta, confirme que o firmware iniciou e teste `http://IP_DO_ESP8266/api/status` em um navegador na mesma rede. |
+| O dispositivo fica offline | Confirme a alimentação da placa, o Wi-Fi e se o roteador atribuiu um novo IP. |
+| O aplicativo não compila | Execute `flutter pub get` e depois `flutter analyze` para verificar dependências e erros reportados. |
+| O motor vibra, mas não gira corretamente | Confira a ordem das bobinas, a ligação ao driver, a alimentação e a compatibilidade entre o motor e o padrão de acionamento. |
+| A iluminação RGB apresenta cores incorretas | Verifique a identificação dos canais, a ligação dos pinos e os resistores utilizados. |
 
 ## Roadmap
 
-- [x] Comunicação HTTP entre o aplicativo e o ESP8266
-- [x] Controle para ligar e desligar o LED
-- [x] Ajuste de brilho por PWM
-- [x] Consulta do estado do dispositivo
-- [x] Cadastro manual por endereço IP
-- [ ] Implementar anúncio mDNS no firmware ESP8266 para permitir descoberta automática
-- [ ] Melhorar o feedback visual de erros e de conexão
-- [ ] Evoluir o suporte a múltiplos dispositivos
+### Concluído
+
+- [x] Aplicativo Flutter para controle local de dispositivos.
+- [x] Comunicação HTTP com payloads JSON.
+- [x] Consulta do estado do ESP8266.
+- [x] Adição manual de dispositivos por IP e porta.
+- [x] Implementação de busca automática por mDNS.
+- [x] Controle do motor de passo e seleção de sentido.
+- [x] Presets de cores RGB e controle manual dos canais.
+- [x] Ajuste de brilho.
+- [x] Indicação de estado online/offline e atualização manual.
+- [x] Renomeação local dos dispositivos com persistência.
+- [x] Cartões expansíveis e opção de desconexão.
+- [x] Verificação estática do aplicativo com `flutter analyze`.
+- [x] Execução e compilação de depuração em Android.
+
+### Próximos passos
+
+- [ ] Alinhar o nome mDNS anunciado pelo firmware com o filtro usado pelo aplicativo.
+- [ ] Externalizar as credenciais Wi-Fi e garantir que não sejam enviadas ao Git.
+- [ ] Organizar capturas de tela da aplicação em `docs/images/`.
+- [ ] Expandir os testes físicos do motor e da iluminação em diferentes condições de alimentação.
+- [ ] Avaliar uma integração separada caso o objetivo seja controlar uma lâmpada inteligente comercial.
 
 ## Autor
 
 Desenvolvido por **Lucas Wallace Segalla**.
 
 - GitHub: https://github.com/lucassegalla
+- LinkedIn: https://linkedin.com/in/lucassegalla
